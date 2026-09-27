@@ -1,0 +1,18 @@
+{
+  "name": "capture-message",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Atalhos para rodar os serviços whatsapp + endpoint (local ou Docker)",
+  "scripts": {
+    "setup": "npm install && npm ci --prefix apps/endpoint && npm ci --prefix apps/whatsapp",
+    "dev": "concurrently -n endpoint,whatsapp -c blue,green \"npm run dev --prefix apps/endpoint\" \"npm run dev --prefix apps/whatsapp\"",
+    "typecheck": "npm run typecheck --prefix apps/endpoint && npm run typecheck --prefix apps/whatsapp",
+    "docker:up": "docker compose up -d --build",
+    "docker:logs": "docker compose logs -f",
+    "docker:qr": "docker compose logs -f whatsapp",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}

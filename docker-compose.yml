@@ -1,0 +1,104 @@
+name: capture-message
+
+services:
+  whatsapp:
+    build:
+      context: .
+      dockerfile: apps/whatsapp/Dockerfile
+    # Nome fixo impede `docker compose up --scale whatsapp=2`: duas instâncias
+    # com a mesma sessão derrubam a conexão. Mantenha réplica única.
+    container_name: capture-whatsapp
+    env_file: .env
+    environment:
+      FORWARD_URL: http://endpoint:3000/messages
+      AUTH_DIR: /app/auth
+      QUEUE_DIR: /app/queue
+      SETTINGS_DIR: /app/settings
+      DB_PATH: /app/db/app.db
+      MEDIA_DIR: /app/media
+      # Admin escuta em todas as interfaces do container, mas a porta só é
+      # publicada no loopback do host (ver ports abaixo).
+      ADMIN_HOST: 0.0.0.0
+      ADMIN_PORT: 3200
+    ports:
+      - "127.0.0.1:3200:3200"
+    volumes:
+      # Sessão do Baileys fora da imagem: sobrevive a up/down/rebuild.
+      - auth_data:/app/auth
+      # Fila local persistida: mensagens pendentes não se perdem num restart.
+      - queue_data:/app/queue
+      # Arquivos antigos (connections.json, test-runs/) — migrados para o banco na 1ª execução.
+      - settings_data:/app/settings
+      # Banco SQLite: conexões, fluxos, execuções, conversas, metadados de mídia e eventos.
+      - db_data:/app/db
+      # Arquivos de mídia baixados das mensagens.
+      - media_data:/app/media
+    # on-failure: reinicia só em crash. Logout/QR expirado não derrubam o
+    # processo — ele fica parado aguardando "Conectar" na interface admin.
+    restart: on-failure
+    # Tempo para fechar o socket e drenar a fila antes do SIGKILL.
+    stop_grace_period: 30s
+    init: true
+    depends_on:
+      - endpoint
+
+  endpoint:
+    build:
+      context: .
+      dockerfile: apps/endpoint/Dockerfile
+    container_name: capture-endpoint
+    env_file: .env
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATA_DIR: /app/data
+    volumes:
+      - endpoint_data:/app/data
+    # Só na rede interna do compose; descomente para acessar do host.
+    # ports:
+    #   - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    init: true
+
+  # Proxy reverso OPCIONAL da interface admin (HTTPS + login). Só sobe com:
+  #   docker compose --profile proxy up -d
+  # Por padrão publica só no loopback (https://localhost:8443). Para a rede
+  # local use ADMIN_PROXY_BIND=0.0.0.0 no .env — nunca sem ADMIN_PROXY_USER/HASH.
+  admin-proxy:
+    image: caddy:2.10-alpine
+    profiles: [proxy]
+    container_name: capture-admin-proxy
+    environment:
+      ADMIN_PROXY_SITE: ${ADMIN_PROXY_SITE:-localhost}
+      ADMIN_PROXY_USER: ${ADMIN_PROXY_USER:-}
+      ADMIN_PROXY_PASSWORD_HASH: ${ADMIN_PROXY_PASSWORD_HASH:-}
+    ports:
+      - "${ADMIN_PROXY_BIND:-127.0.0.1}:${ADMIN_PROXY_PORT:-8443}:443"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificados (CA local ou Let's Encrypt): persistem entre restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+    # Endurecimento: sistema de arquivos só leitura, sem capabilities além de
+    # abrir a porta 443, sem escalar privilégio.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - whatsapp
+    restart: unless-stopped
+
+volumes:
+  # ATENÇÃO: `docker compose down -v` apaga estes volumes, inclusive a sessão.
+  auth_data:
+  queue_data:
+  settings_data:
+  db_data:
+  media_data:
+  endpoint_data:
+  caddy_data:
+  caddy_config:

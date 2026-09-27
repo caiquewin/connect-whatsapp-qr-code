@@ -1,0 +1,16 @@
+# Contexto de build é a raiz; cada Dockerfile copia só o que precisa.
+**/node_modules
+**/dist
+**/auth
+**/queue
+**/settings
+**/data
+**/db
+**/media
+**/test-logs
+.env
+.env.*
+!.env.example
+.git
+Baileys
+*.log

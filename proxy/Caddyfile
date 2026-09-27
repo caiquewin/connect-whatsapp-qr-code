@@ -1,0 +1,62 @@
+# Proxy reverso da interface admin (OPCIONAL).
+#
+# Só é necessário para abrir a interface fora do próprio computador (rede local
+# ou domínio). Sobe com:  docker compose --profile proxy up -d
+#
+# O que ele acrescenta na frente do serviço whatsapp:
+#   - HTTPS (localhost/IP: certificado da CA local do Caddy; domínio real: Let's Encrypt)
+#   - Login (basic auth com hash bcrypt) — a interface em si não tem login
+#   - Limite de corpo, cabeçalhos de segurança, sem versão do servidor
+#   - SSE (/api/stream) repassado sem buffer
+#
+# A admin continua checando Host/Origin: para domínio próprio, coloque-o em
+# ADMIN_ALLOWED_HOSTS no .env. Variáveis: ver .env.example (seção proxy reverso).
+
+{
+	# API de administração do Caddy desligada (ninguém reconfigura o proxy por HTTP).
+	admin off
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
+{$ADMIN_PROXY_SITE:localhost} {
+	# Sem usuário/hash definidos no .env, nenhum login é aceito (falha fechada).
+	basic_auth {
+		{$ADMIN_PROXY_USER} {$ADMIN_PROXY_PASSWORD_HASH}
+	}
+
+	# A API aceita no máximo 16 KB (12 MB só no upload do JSON do Studio);
+	# corta antes de chegar nela.
+	@upload path /api/studio/uploads
+	request_body @upload {
+		max_size 13MB
+	}
+	@other not path /api/studio/uploads
+	request_body @other {
+		max_size 32KB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		-Via
+	}
+
+	reverse_proxy whatsapp:3200 {
+		# Eventos SSE saem na hora (sem buffer).
+		flush_interval -1
+	}
+
+	# Access log em JSON; o Caddy não registra o header Authorization.
+	log {
+		output stdout
+		format json
+	}
+}

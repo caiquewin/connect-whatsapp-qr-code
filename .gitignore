@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+
+# Segredos e estado local — nunca versionar
+.env
+auth/
+queue/
+settings/
+data/
+db/
+media/
+test-logs/
+
+# Clone de referência da biblioteca (tem repositório git próprio)
+Baileys/

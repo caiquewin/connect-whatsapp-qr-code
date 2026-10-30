@@ -186,6 +186,49 @@ Requer o Claude Code CLI local (`TESTER_CLAUDE_BIN`). No Docker a aba mostra o e
 
 ---
 
+## Mensagens de aniversário (CSV)
+
+Uma conexão pode mandar parabéns automaticamente para quem faz aniversário no dia, a partir de uma planilha CSV. Não tem tela na interface: tudo fica no arquivo e no `.env`.
+
+1. No `.env`, coloque em `BIRTHDAY_CONNECTION_ID` o id da conexão que vai enviar (os 8 caracteres que aparecem no card da conexão). Vazio = desligado.
+2. Edite `apps/whatsapp/birthdays/aniversarios.csv` (no Docker é a mesma pasta, montada em `/app/birthdays`; ela precisa existir no host, senão o `docker compose up` falha de propósito). Se o arquivo não existir, ele é criado com o modelo na primeira verificação.
+3. Reinicie o serviço. Ele verifica cerca de 30 s depois de subir e, a partir daí, uma vez por dia (a cada ~24 h, no início da janela de horário).
+
+Formato (separador `;`, UTF-8; abre direto no Excel):
+
+```csv
+tipo;nome;numero;aniversario;sexo;mensagem;enviado
+modelo;;;;F;Feliz aniversário, {primeiro_nome}! 🎉;
+modelo;;;;M;Parabéns, {primeiro_nome}! 🎉;
+pessoa;Maria Silva;11999998888;15/03;F;;
+pessoa;João Souza;5521988887777;02/11/1990;M;Mensagem só para o João, {nome}!;2026-11-02
+```
+
+| Coluna | Uso |
+|---|---|
+| `tipo` | `modelo` (texto padrão de um sexo) ou `pessoa` (vazio = `pessoa`). |
+| `nome` | Vai no texto: `{nome}` = nome completo, `{primeiro_nome}` = primeira palavra. |
+| `numero` | Telefone com DDD (sem DDI recebe `55`); pontuação é ignorada. |
+| `aniversario` | `DD/MM`, `DD/MM/AAAA` ou `AAAA-MM-DD`. Quem nasceu em 29/02 recebe em 28/02 nos anos não bissextos. |
+| `sexo` | `F` ou `M` (aceita feminino/masculino, mulher/homem): escolhe o modelo. |
+| `mensagem` | Na linha `modelo`: o texto daquele sexo. Na linha `pessoa`: texto próprio (opcional; vazio = usa o modelo). |
+| `enviado` | Preenchida pelo serviço com a data do envio (`AAAA-MM-DD`). Data deste ano = já recebeu; no ano seguinte recebe de novo. Para reenviar, apague a data. |
+
+- "Hoje" segue `BIRTHDAY_TZ` (padrão `America/Sao_Paulo`).
+- **Horário:** só envia dentro de `BIRTHDAY_HOURS` (padrão `9-20`). Se o serviço subir fora da janela (ex.: de madrugada), espera o início dela.
+- **Botão "🎂 Enviar aniversários"** (aba Conexões): verifica e envia na hora, mesmo fora de `BIRTHDAY_HOURS`. O limite diário e a regra de não repetir continuam valendo; o resultado (aniversariantes pendentes e mensagens enviadas) aparece abaixo do botão.
+- **Limite diário:** no máximo `BIRTHDAY_MAX_PER_DAY` (padrão 30) mensagens por dia. O que passar disso não é enviado naquele dia (aviso no log).
+- **Conexão fechada:** tenta de novo a cada 5 min dentro da janela. Se ela só voltar no dia seguinte, o aniversário do dia anterior não é enviado com atraso.
+- **Sem repetição:** cada envio também fica em `birthdays/.aniversarios-enviados.json`. Assim, nem um restart nem o Excel salvando por cima da coluna `enviado` fazem a mensagem sair de novo. O mesmo número escrito de formas diferentes (com/sem DDI, com/sem 9º dígito) recebe uma vez só. Para forçar um reenvio, apague a data no CSV **e** a entrada no `.json`.
+- Entre uma mensagem e outra há uma pausa (`BIRTHDAY_SEND_INTERVAL_MS`, ±25%) e o "digitando…".
+- Números sem WhatsApp e linhas inválidas são pulados, com aviso no log (só o número da linha, sem nome nem telefone).
+- Linhas começando com `#` são comentários. O arquivo é regravado de forma atômica após cada envio. Se ele estiver aberto no Excel no Windows, a gravação pode falhar: a mensagem não é repetida enquanto o processo estiver no ar, mas marque `enviado` à mão.
+- O CSV tem dados pessoais e fica fora do git e da imagem Docker.
+
+> Os parabéns são **mensagens de verdade** saindo do seu número. Elas também passam pelo listener como mensagens enviadas (`fromMe`) e seguem os filtros do webhook.
+
+---
+
 ## Formato da mensagem enviada ao webhook
 
 ```json
@@ -250,6 +293,12 @@ Definidas no `.env` (modelo em [`.env.example`](.env.example)). No Docker, o blo
 | `ADMIN_ALLOWED_HOSTS` | whatsapp | — | Domínios extras aceitos pela admin (proxy reverso com domínio próprio). |
 | `ADMIN_PROXY_SITE` / `ADMIN_PROXY_BIND` / `ADMIN_PROXY_PORT` | admin-proxy | `localhost` / `127.0.0.1` / `8443` | Proxy reverso Caddy (profile `proxy`): site, interface e porta publicadas. |
 | `ADMIN_PROXY_USER` / `ADMIN_PROXY_PASSWORD_HASH` | admin-proxy | — | Login do proxy reverso (hash bcrypt, entre aspas simples). Sem eles, nenhum login é aceito. |
+| `BIRTHDAY_CONNECTION_ID` | whatsapp | — | Conexão que envia os parabéns do CSV. Vazio = desligado. |
+| `BIRTHDAY_CSV` | whatsapp | `./birthdays/aniversarios.csv` | Planilha de aniversários (Docker: `/app/birthdays/aniversarios.csv`). |
+| `BIRTHDAY_TZ` | whatsapp | `America/Sao_Paulo` | Fuso que define "hoje". |
+| `BIRTHDAY_SEND_INTERVAL_MS` | whatsapp | `20000` | Pausa média entre duas mensagens de parabéns (mín. 3000). |
+| `BIRTHDAY_HOURS` | whatsapp | `9-20` | Janela de envio (horas, início-fim) no `BIRTHDAY_TZ`. |
+| `BIRTHDAY_MAX_PER_DAY` | whatsapp | `30` | Teto de parabéns por dia. |
 | `LOG_LEVEL` | ambos | `info` | Nível do pino. |
 | `BAILEYS_LOG_LEVEL` | whatsapp | `warn` | Nível dos logs internos da Baileys (muito verbosos abaixo de `warn`). |
 
@@ -268,6 +317,7 @@ Definidas no `.env` (modelo em [`.env.example`](.env.example)). No Docker, o blo
 | Logs das execuções de teste com IA | `apps/whatsapp/test-logs/*.md` (`0600`) | — (testes só rodam localmente) | Sim (conversa completa) |
 | Proxy de cada conexão (com usuário/senha) | no banco, tabela `connections` | `db_data` | **Sim** |
 | Certificados do proxy reverso (CA local / Let's Encrypt) | — | `caddy_data`, `caddy_config` | Sim (chave privada da CA local) |
+| Planilha de aniversários (nomes, telefones, datas) + registro de envios (`.aniversarios-enviados.json`) | `apps/whatsapp/birthdays/` (`0600`) | pasta do host montada em `/app/birthdays/` | Sim (dados pessoais) |
 | Arquivos da versão anterior, já migrados (`connections.json.migrated`, `test-runs.migrated/`) | `apps/whatsapp/settings/` | `settings_data` → `/app/settings/` | Sim — pode apagar depois de conferir |
 | Mensagens recebidas pelo endpoint | `apps/endpoint/data/messages-AAAA-MM-DD.jsonl` | `endpoint_data` → `/app/data/` | Sim |
 

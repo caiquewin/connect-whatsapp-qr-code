@@ -16,6 +16,7 @@ services:
       SETTINGS_DIR: /app/settings
       DB_PATH: /app/db/app.db
       MEDIA_DIR: /app/media
+      BIRTHDAY_CSV: /app/birthdays/aniversarios.csv
       # Admin escuta em todas as interfaces do container, mas a porta só é
       # publicada no loopback do host (ver ports abaixo).
       ADMIN_HOST: 0.0.0.0
@@ -33,6 +34,15 @@ services:
       - db_data:/app/db
       # Arquivos de mídia baixados das mensagens.
       - media_data:/app/media
+      # CSV de aniversários: pasta do host (o mesmo arquivo do modo local), editável no Excel.
+      # O app grava a coluna "enviado" (.tmp + rename) — a pasta precisa ser gravável pelo uid 1000.
+      # create_host_path: false → sem a pasta no host o compose falha logo, em vez de
+      # o Docker criá-la como root (o app, uid 1000, não conseguiria gravar).
+      - type: bind
+        source: ./apps/whatsapp/birthdays
+        target: /app/birthdays
+        bind:
+          create_host_path: false
     # on-failure: reinicia só em crash. Logout/QR expirado não derrubam o
     # processo — ele fica parado aguardando "Conectar" na interface admin.
     restart: on-failure

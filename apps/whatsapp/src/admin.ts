@@ -24,6 +24,9 @@
 //                                              "connection-removed" { id }, e "change" com os
 //                                              outros tópicos alterados (tests, messages, events)
 //
+//   POST   /api/birthdays/run                  verifica e envia os parabéns de hoje agora (fora da janela
+//                                              BIRTHDAY_HOURS; teto diário e "não repetir" continuam valendo)
+//
 //   Dados gravados no banco (só leitura):
 //   GET    /api/connections/:id/chats          conversas (?limit, ?before=epoch s)
 //   GET    /api/connections/:id/messages       mensagens de uma conversa (?chat=<jid>, ?limit, ?before=epoch s)
@@ -72,6 +75,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import QRCode from 'qrcode'
 import { ADMIN_PAGE } from './admin-page.js'
+import type { BirthdaySender } from './birthdays.js'
 import type { ChangeBus, ChangeSet, Topic } from './changes.js'
 import { EVENT_KINDS, type EventKind, type EventLog, type EventQuery } from './events.js'
 import { parseFilters } from './filters.js'
@@ -121,6 +125,7 @@ export type AdminOptions = {
 	manager: ConnectionManager
 	store: ConnectionsStore
 	tester: TestRunner
+	birthdays: BirthdaySender
 	flows: FlowStore
 	messages: MessageStore
 	events: EventLog
@@ -212,6 +217,14 @@ async function handle(ctx: Ctx): Promise<void> {
 			})
 			return json(res, 201, { id: item.id })
 		}
+	}
+
+	if (pathname === '/api/birthdays/run' && req.method === 'POST') {
+		await readJson(ctx)
+		const result = await ctx.birthdays.runNow().catch((err: Error) => {
+			throw new HttpError(409, err.message)
+		})
+		return json(res, 200, result)
 	}
 
 	if (pathname === '/api/tests' && req.method === 'GET') {

@@ -4,6 +4,7 @@
 import { mkdir } from 'node:fs/promises'
 import net from 'node:net'
 import { startAdmin } from './admin.js'
+import { BirthdaySender } from './birthdays.js'
 import { ChangeBus } from './changes.js'
 import { config } from './config.js'
 import { openDb } from './db.js'
@@ -60,11 +61,16 @@ async function main(): Promise<void> {
 	const tester = new TestRunner(manager, config.tester, db, flows, events, changes, config.cards, config.twilio)
 	await tester.load()
 
+	// Parabéns do CSV: verifica ~30 s após iniciar (a conexão já abriu) e a cada 24 h.
+	const birthdays = new BirthdaySender(manager, config.birthdays)
+	birthdays.start()
+
 	const admin = startAdmin({
 		...config.admin,
 		manager,
 		store,
 		tester,
+		birthdays,
 		flows,
 		messages,
 		events,
@@ -84,6 +90,7 @@ async function main(): Promise<void> {
 		logger.info({ reason }, 'encerrando')
 		// Cancela testes, fecha os sockets (para de chegar mensagem) e drena as filas.
 		tester.stopAll()
+		birthdays.stop()
 		media.stop()
 		await manager.shutdown(DRAIN_MS)
 		await admin.close()

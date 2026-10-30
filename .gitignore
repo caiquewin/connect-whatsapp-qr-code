@@ -2,8 +2,16 @@ node_modules/
 dist/
 *.log
 
-# Segredos e estado local — nunca versionar
+# Segredos — nunca versionar (só o .env.example, sem valores reais)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Estado local: sessão do WhatsApp, fila, mensagens, mídia, banco, logs de teste e CSV de aniversários (dados pessoais)
 auth/
 queue/
 settings/
@@ -11,6 +19,17 @@ data/
 db/
 media/
 test-logs/
+birthdays/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.jsonl
+*.tmp
+
+# Configuração local do Claude Code (permissões pessoais); os agents em .claude/agents/ são versionados
+.claude/settings.local.json
 
 # Clone de referência da biblioteca (tem repositório git próprio)
 Baileys/

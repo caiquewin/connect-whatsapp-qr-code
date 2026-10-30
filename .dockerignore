@@ -1,6 +1,8 @@
 # Contexto de build é a raiz; cada Dockerfile copia só o que precisa.
 **/node_modules
 **/dist
+
+# Estado local: sessão, fila, mensagens, mídia, banco e logs de teste
 **/auth
 **/queue
 **/settings
@@ -8,9 +10,25 @@
 **/db
 **/media
 **/test-logs
+**/birthdays
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.sqlite
+**/*.sqlite3
+**/*.jsonl
+**/*.tmp
+
+# Segredos
 .env
 .env.*
 !.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+
 .git
+.claude
 Baileys
 *.log

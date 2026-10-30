@@ -55,6 +55,7 @@ export type Flow = FlowInput & { id: string; createdAt: string; updatedAt: strin
 export type FlowView = Flow & { runs: number; lastRun: { id: string; status: string; createdAt: string } | null }
 
 const MAX_NAME = 80
+const MAX_RULES = 100
 
 /** Valida o corpo vindo da interface. Lança com mensagem legível. */
 export function parseFlowInput(body: Record<string, unknown>): FlowInput {
@@ -73,7 +74,7 @@ export function parseFlowInput(body: Record<string, unknown>): FlowInput {
 	if (task.length > 4000) throw new Error('Tarefa com no máximo 4000 caracteres')
 	const rawRules = Array.isArray(body.rules) ? body.rules : String(body.rules ?? '').split('\n')
 	const rules = rawRules.map((r) => String(r).trim()).filter(Boolean)
-	if (rules.length > 30) throw new Error('No máximo 30 regras')
+	if (rules.length > MAX_RULES) throw new Error(`No máximo ${MAX_RULES} regras (uma por linha); há ${rules.length} linhas preenchidas`)
 	if (rules.some((r) => r.length > 500)) throw new Error('Cada regra com no máximo 500 caracteres')
 	const num = (value: unknown, def: number, min: number, max: number, label: string) => {
 		if (value === undefined || value === null || value === '') return def

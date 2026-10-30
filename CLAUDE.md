@@ -28,6 +28,7 @@ O que existe hoje (além do escopo original):
 - **Proxies**: saída do WhatsApp por conexão (http/https/socks5, na interface), saída do webhook global (`WEBHOOK_PROXY_URL`), proxy reverso Caddy opcional na admin (HTTPS + login).
 - **Tempo real sem polling**: `ChangeBus` (versão por tópico + ids de conexão) → SSE (`/api/stream`) manda snapshot e cada conexão alterada já pronta; GETs de dados saem de cache em memória com ETag/304. Fila com índice em memória; banco paginado por cursor. Sem Redis, de propósito.
 - **Webhook opcional**: sem webhook nada é enfileirado (só banco); remover pode excluir as pendentes.
+- **Aniversários por CSV**: com `BIRTHDAY_CONNECTION_ID`, a conexão manda parabéns (modelo por sexo F/M ou mensagem própria) para quem faz aniversário hoje, ao iniciar e 1×/dia dentro de `BIRTHDAY_HOURS`, com teto `BIRTHDAY_MAX_PER_DAY`. Não repete graças ao `.aniversarios-enviados.json`, e grava a data na coluna `enviado` do próprio CSV (`apps/whatsapp/birthdays/`, fora do git).
 - **Banco SQLite** (`node:sqlite`, `DB_PATH`): conexões, fluxos, execuções, conversas/mensagens (todas, filtradas ou não), metadados de mídia e eventos (estado da conexão, entregas do webhook, passos dos testes). **Mídia** baixada para `MEDIA_DIR`.
 
 ## Estado atual (atualizado em 27/09/2026)
@@ -68,7 +69,7 @@ O maior risco de banimento é a sessão se perder e forçar novo QR repetidament
 - **Reconexão comedida:** backoff exponencial, nunca loop apertado; tratar `loggedOut` explicitamente para não reusar sessão morta.
 - O **QR sai no stdout** (`docker logs`) e na interface admin.
 - **Nunca** rodar duas instâncias do serviço `whatsapp` com a mesma sessão ao mesmo tempo — derruba a sessão. Manter réplica única (`container_name` fixo garante isso).
-- Imagem enxuta (`node:22-slim`), multi-stage build, usuário não-root, `.dockerignore` excluindo `auth/`, `queue/`, `settings/`, `data/`, `db/`, `media/`, `.env`, `node_modules`, `Baileys/`.
+- Imagem enxuta (`node:22-slim`), multi-stage build, usuário não-root, `.dockerignore` excluindo `auth/`, `queue/`, `settings/`, `data/`, `db/`, `media/`, `test-logs/`, bancos/JSONL soltos, `.env*` (menos o `.env.example`), chaves (`*.pem`/`*.key`), `.claude`, `node_modules`, `Baileys/`. O `.gitignore` segue a mesma lista (mantendo `.claude/agents/` versionado).
 
 ## Boas práticas obrigatórias em todo código gerado
 
@@ -121,11 +122,12 @@ capture-message/
         ├── cards.ts         # card da demanda: texto | Azure DevOps | Jira — SOMENTE GET, hosts permitidos
         ├── studio.ts        # fluxos Twilio Studio: caminho WSL/Windows, busca no projeto, roteiro legível (segredos ***)
         ├── studio-monitor.ts # execução real no Studio durante o teste: steps + contexto a cada 10 s (SOMENTE GET)
+        ├── birthdays.ts     # parabéns a partir do CSV (BIRTHDAY_*): 1×/dia na janela, teto diário, modelo por sexo, registro + "enviado" no CSV
         ├── run-log.ts       # log Markdown da execução (TEST_LOGS_DIR, 0600)
         └── ai.ts            # ponte com `claude -p` isolado (sem tools, sem settings, JSON schema)
 ```
 
-Dados em runtime (volume no Docker / pasta em `apps/*` localmente): `auth/<id>/`, `queue/<id>/` (+ `failed/`), `db/app.db` (+ `-wal`/`-shm`), `media/<id>/<AAAA-MM>/`, `data/messages-AAAA-MM-DD.jsonl`. Em `settings/` só sobram os arquivos antigos já migrados (`*.migrated`).
+Dados em runtime (volume no Docker / pasta em `apps/*` localmente): `auth/<id>/`, `queue/<id>/` (+ `failed/`), `db/app.db` (+ `-wal`/`-shm`), `media/<id>/<AAAA-MM>/`, `data/messages-AAAA-MM-DD.jsonl`, `birthdays/aniversarios.csv` (bind mount no Docker). Em `settings/` só sobram os arquivos antigos já migrados (`*.migrated`).
 
 ## Invariantes — não quebre sem discutir comigo
 

@@ -206,7 +206,8 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 
 	@media (max-width: 480px) {
 		.qr { width: 100%; height: auto; aspect-ratio: 1; max-width: 260px; margin: 0 auto; }
-		.top > button { width: 100%; }
+		.top > .actions { width: 100%; }
+		.top > .actions > button { flex: 1 1 auto; }
 	}
 </style>
 </head>
@@ -224,8 +225,12 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 			<p class="sub">Cada conexão é um número: leia o QR, dê um nome e defina o webhook.</p>
 			<div class="summary" id="summary" aria-live="polite"></div>
 		</div>
-		<button type="button" class="primary" id="new-open">+ Nova conexão</button>
+		<div class="actions">
+			<button type="button" id="bday-run" title="Envia agora os parabéns de quem faz aniversário hoje (planilha do BIRTHDAY_CSV)">🎂 Enviar aniversários</button>
+			<button type="button" class="primary" id="new-open">+ Nova conexão</button>
+		</div>
 	</div>
+	<div class="result" id="bday-result" role="status"></div>
 
 	<form class="card pad new-card" id="new-form" hidden novalidate>
 		<h2>Nova conexão</h2>
@@ -568,6 +573,18 @@ export const ADMIN_PAGE = /* html */ `<!doctype html>
 			$('new-name').value = ''
 			await refresh()
 			cards.get(id)?.root.scrollIntoView({ behavior: 'smooth', block: 'start' })
+		})
+	})
+
+	// ---------- Aniversários ----------
+	$('bday-run').addEventListener('click', () => {
+		if (!confirm('Enviar agora os parabéns de quem faz aniversário hoje? As mensagens saem de verdade.')) return
+		setResult($('bday-result'), 'Verificando e enviando… (há uma pausa entre as mensagens)')
+		busy($('bday-run'), $('bday-result'), async () => {
+			const r = await send('POST', '/api/birthdays/run')
+			if (r.note) return setResult($('bday-result'), r.note, 'err')
+			const text = r.people + ' pessoa(s) na planilha, ' + r.due + ' aniversariante(s) pendente(s) hoje, ' + r.sent + ' mensagem(ns) enviada(s).'
+			setResult($('bday-result'), r.open ? text : text + ' A conexão não está aberta.', r.open ? 'ok' : 'err')
 		})
 	})
 

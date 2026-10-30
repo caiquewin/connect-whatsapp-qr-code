@@ -30,6 +30,15 @@ function list(name: string): string[] {
 	return (process.env[name] ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
 }
 
+function hours(name: string, fallback: string): { startHour: number; endHour: number } {
+	const raw = str(name, fallback)
+	const m = /^(\d{1,2})\s*-\s*(\d{1,2})$/.exec(raw)
+	const startHour = Number(m?.[1])
+	const endHour = Number(m?.[2])
+	if (!m || startHour >= endHour || endHour > 24) throw new Error(`${name} deve ser "início-fim" em horas, ex.: 9-20 (recebido: "${raw}")`)
+	return { startHour, endHour }
+}
+
 function twilioEnv(env: string) {
 	return {
 		accountSid: str(`TWILIO_${env}_ACCOUNT_SID`, ''),
@@ -125,6 +134,21 @@ export const config = {
 		prod: twilioEnv('PROD'),
 		/** Intervalo de consulta da execução enquanto o teste roda. */
 		pollMs: Math.max(int('TESTER_STUDIO_POLL_MS', 10_000), 3_000),
+	},
+
+	// Mensagens de aniversário a partir de um CSV (birthdays.ts). Sem conexão = desligado.
+	birthdays: {
+		/** Id (8 hex) da conexão que envia os parabéns. */
+		connectionId: str('BIRTHDAY_CONNECTION_ID', '').toLowerCase(),
+		csvPath: path.resolve(str('BIRTHDAY_CSV', './birthdays/aniversarios.csv')),
+		/** Fuso que define "hoje" (no Docker o relógio do container é UTC). */
+		timeZone: str('BIRTHDAY_TZ', 'America/Sao_Paulo'),
+		/** Intervalo médio entre duas mensagens (±25%). Mínimo 3 s. */
+		sendGapMs: Math.max(int('BIRTHDAY_SEND_INTERVAL_MS', 20_000), 3_000),
+		/** Janela de envio "H-H" no fuso acima (início incluso, fim excluso). */
+		...hours('BIRTHDAY_HOURS', '9-20'),
+		/** Teto de mensagens por dia (protege o número contra denúncia de spam). */
+		maxPerDay: Math.max(int('BIRTHDAY_MAX_PER_DAY', 30), 1),
 	},
 
 	// Quantas conexões (números) a interface permite criar.

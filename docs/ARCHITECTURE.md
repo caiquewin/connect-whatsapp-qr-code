@@ -85,12 +85,14 @@ WhatsApp ──ws──► Baileys socket
 | `admin.ts` | Servidor HTTP da interface + API JSON; proteção por Host/Origin/Content-Type. | `startAdmin` |
 | `admin-page.ts` | HTML/CSS/JS da interface como string TS (entra no build do `tsc` sem etapa de cópia). Recebe as conexões prontas por SSE (`/api/stream`); busca testes só quando mudam; sem polling. Sem recursos externos. | `ADMIN_PAGE` |
 | `tester.ts` | `TestRunner`: executa um fluxo — laço com IA, coleta de respostas, veredito; grava em `test_runs` e eventos `test`. Migra `test-runs/*.json` antigos. | `TestRunner`, tipos, `SYSTEM_PROMPT`, schemas |
+| `birthdays.ts` | `BirthdaySender`: lê o CSV de aniversários, envia os parabéns pela conexão `BIRTHDAY_CONNECTION_ID` ao iniciar e 1×/dia (janela `BIRTHDAY_HOURS`, teto `BIRTHDAY_MAX_PER_DAY`), registra em `.aniversarios-enviados.json` e marca `enviado` no CSV. Parser CSV próprio (RFC 4180, `;`/`,`, BOM). | `BirthdaySender`, `parseCsv`, `serializeCsv`, `BIRTHDAY_TEMPLATE` |
 | `ai.ts` | Ponte com `claude -p` (sem ferramentas, sem sessão, sem settings locais, saída validada por `--json-schema`). | `askClaude` |
 
 Dependências entre módulos (setas = "importa"):
 
 ```
-index ─► config, logger, db, events, messages, media, flows, settings, manager, admin, tester, filters
+index ─► config, logger, db, events, messages, media, flows, settings, manager, admin, tester, filters, birthdays
+birthdays ─► filters, settings(isValidId), manager(tipo)
 manager ─► connection, listener, forwarder, media, filters, settings/messages/events(tipos)
 listener ─► normalizer, filters, forwarder(tipo)
 admin ─► admin-page, events, flows, filters, forwarder(deliver), settings, manager/messages/tester(tipos)
@@ -403,6 +405,34 @@ start(flowId)
 
 ---
 
+## Aniversários (CSV)
+
+`birthdays.ts` — `BirthdaySender`, criado no `index.ts` depois do `manager.init()`; `stop()` no shutdown (cancela o timer e a espera entre envios). `runNow()` atende o `POST /api/birthdays/run` (botão da interface): roda a mesma verificação fora da janela; uma flag impede duas verificações ao mesmo tempo (a agendada, se cair durante o botão, tenta de novo em 5 min).
+
+```
+start() ── 30 s ──► tick()
+                      ├─ fora de BIRTHDAY_HOURS            → agenda para o início da janela
+                      └─ check()
+                      ├─ conexão não cadastrada            → aviso; próxima amanhã
+                      ├─ CSV não existe                    → cria o modelo (wx); próxima amanhã
+                      ├─ lê CSV → modelos F/M + pessoas válidas (inválidas: aviso com nº da linha)
+                      ├─ devidos = aniversário hoje (BIRTHDAY_TZ; 29/02 → 28/02)
+                      │            e "enviado" sem o ano atual e fora do registro (.aniversarios-enviados.json)
+                      └─ para cada um: teto diário? → getSocket (fechada → false) → onWhatsApp
+                           → telefone do servidor já no registro? só marca → pausa ±25%
+                           → "digitando…" → sendMessage → registro (.tmp + rename) → relê o CSV e grava "enviado"
+false/erro → nova tentativa em 5 min; true → amanhã no início da janela (~24 h)
+```
+
+- **Marca no próprio CSV**, relendo o arquivo depois de cada envio (casa por telefone + nome). Isso preserva edições feitas durante o envio e não perde a marca se o processo cair no meio da lista. O arquivo é regravado inteiro: as aspas são normalizadas, mas comentários (`#`), linhas em branco, BOM e quebra de linha são mantidos.
+- **Registro de envios** `.aniversarios-enviados.json` (ao lado do CSV, `telefone|ano → data`, só o ano corrente): é a fonte que impede reenvio. Sobrevive a restart (no `npm run dev`, cada edição reinicia) e ao Excel salvar uma cópia antiga por cima da coluna. A chave é o telefone devolvido pelo `onWhatsApp`, então grafias diferentes do mesmo número contam uma vez. Ele também conta o teto diário.
+- Se a marca no CSV falhar (arquivo travado pelo Excel no Windows), o envio continua registrado; só a planilha fica sem a data.
+- Log só com número da linha e contagens (invariante 8: nada de nome, telefone ou texto). Não grava em `events`.
+- A mensagem enviada volta pelo `messages.upsert` como `fromMe` e segue o caminho normal (banco + filtros do webhook).
+- No Docker o CSV é um **bind mount** (`./apps/whatsapp/birthdays`, sintaxe longa com `create_host_path: false`) para ser editável no host. A pasta precisa existir e ser gravável pelo uid 1000 (usuário `node`); sem ela o compose falha em vez de criar a pasta como root.
+
+---
+
 ## Serviço endpoint
 
 `apps/endpoint/src/server.ts` (arquivo único):
@@ -477,4 +507,5 @@ Como qualquer 4xx não recuperável manda a mensagem para `failed/` no app, **um
 - Cada execução guarda a referência inteira (`test_runs.reference`, até `TESTER_REFERENCE_MAX_KB`); muitas execuções com fluxos grandes aumentam o banco.
 - A IA analisa a execução do Studio a cada decisão dela, não a cada leitura de 10 s (a leitura é só coleta). Não há parada antecipada da espera quando o Studio termina ou transfere.
 - Monitor do Studio: o contexto dos widgets é buscado só para tipos de decisão/integração (máx. 25 por rodada); set-variables e mensagens não trazem contexto.
+- Aniversários: sem tela na interface nem eventos no banco; a verificação é 1×/dia no início da janela, e aniversário perdido com a conexão fechada o dia todo não é enviado depois.
 - Mascaramento de segredos por nome de chave (token/senha/auth…): pode esconder valores inofensivos (ex.: `tentativas_enviar_tokenSms`) e não detecta segredo em chave de nome neutro.
